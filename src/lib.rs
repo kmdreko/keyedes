@@ -1,466 +1,56 @@
 use std::collections::HashMap;
-use std::fmt::Formatter;
 use std::hash::Hash;
-use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Deserializer};
 
-// #[derive(Deserialize)]
-// #[serde(tag = "id", content = "data")]
-// pub enum TempEnum {
-//     A(X),
-//     B(Y),
-//     C(Z),
-// }
+use crate::private::KeyedDataVisitor;
 
-// { "id": "", "data": null}
+mod private;
 
-type DeserializationMap<K, T> =
-    HashMap<K, Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>>;
+pub struct DeserializationMap<K, T>(
+    HashMap<K, Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>>,
+);
+
+impl<K, T> DeserializationMap<K, T> {
+    pub fn new() -> DeserializationMap<K, T> {
+        DeserializationMap(HashMap::new())
+    }
+}
+
+impl<K, T> Deref for DeserializationMap<K, T> {
+    type Target = HashMap<
+        K,
+        Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>,
+    >;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<K, T> DerefMut for DeserializationMap<K, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
 
 pub fn deserialize_by_map<'de, D, K, T>(
     deserializer: D,
     deserialization_map: &DeserializationMap<K, T>,
+    type_name: &'static str,
+    fields: &'static [&'static str; 2],
 ) -> Result<T, D::Error>
 where
     D: Deserializer<'de>,
     K: Deserialize<'de> + Eq + Hash,
 {
-    extern crate serde as _serde;
-
-    use _serde::de::Error;
-
-    struct MissingFieldDeserializer<E>(&'static str, PhantomData<E>);
-    impl<'de, E> Deserializer<'de> for MissingFieldDeserializer<E>
-    where
-        E: Error,
-    {
-        type Error = E;
-
-        fn deserialize_any<V>(self, _visitor: V) -> Result<V::Value, E>
-        where
-            V: _serde::de::Visitor<'de>,
-        {
-            Err(Error::missing_field(self.0))
-        }
-
-        fn deserialize_unit<V>(self, visitor: V) -> Result<V::Value, E>
-        where
-            V: _serde::de::Visitor<'de>,
-        {
-            visitor.visit_unit()
-        }
-
-        fn deserialize_unit_struct<V>(self, _name: &'static str, visitor: V) -> Result<V::Value, E>
-        where
-            V: _serde::de::Visitor<'de>,
-        {
-            visitor.visit_unit()
-        }
-
-        fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, E>
-        where
-            V: _serde::de::Visitor<'de>,
-        {
-            visitor.visit_none()
-        }
-
-        _serde::forward_to_deserialize_any! {
-            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-            bytes byte_buf newtype_struct seq tuple
-            tuple_struct map struct enum identifier ignored_any
-        }
-    }
-    struct __Seed<'de, 'a, K, T> {
-        field: K,
-        marker: PhantomData<T>,
-        lifetime: PhantomData<&'de ()>,
-        map: &'a DeserializationMap<K, T>,
-    }
-    impl<'de, 'a, K, T> _serde::de::DeserializeSeed<'de> for __Seed<'de, 'a, K, T>
-    where
-        K: Eq + Hash,
-    {
-        type Value = T;
-        fn deserialize<__D>(self, __deserializer: __D) -> Result<Self::Value, __D::Error>
-        where
-            __D: _serde::Deserializer<'de>,
-        {
-            let deserialization_fn = self
-                .map
-                .get(&self.field)
-                .ok_or_else(|| __D::Error::custom("unknown deserialization key"))?;
-
-            deserialization_fn(&mut <dyn erased_serde::Deserializer>::erase(__deserializer))
-                .map_err(__D::Error::custom)
-        }
-    }
-    struct __Visitor<'de, 'a, K, T> {
-        marker: PhantomData<T>,
-        lifetime: PhantomData<&'de ()>,
-        map: &'a DeserializationMap<K, T>,
-    }
-    impl<'de, 'a, K, T> _serde::de::Visitor<'de> for __Visitor<'de, 'a, K, T>
-    where
-        K: Deserialize<'de> + Eq + Hash,
-    {
-        type Value = T;
-        fn expecting(&self, __formatter: &mut Formatter) -> _serde::__private::fmt::Result {
-            Formatter::write_str(__formatter, "adjacently tagged enum TempEnum")
-        }
-        fn visit_map<__A>(self, mut __map: __A) -> Result<Self::Value, __A::Error>
-        where
-            __A: _serde::de::MapAccess<'de>,
-        {
-            match {
-                let mut __rk: Option<_serde::__private::de::TagOrContentField> = None;
-                while let Some(__k) = match _serde::de::MapAccess::next_key_seed(
-                    &mut __map,
-                    _serde::__private::de::TagContentOtherFieldVisitor {
-                        tag: "id",
-                        content: "data",
-                    },
-                ) {
-                    Ok(__val) => __val,
-                    Err(__err) => {
-                        return Err(__err);
-                    }
-                } {
-                    match __k {
-                        _serde::__private::de::TagContentOtherField::Other => {
-                            match _serde::de::MapAccess::next_value::<_serde::de::IgnoredAny>(
-                                &mut __map,
-                            ) {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            };
-                            continue;
-                        }
-                        _serde::__private::de::TagContentOtherField::Tag => {
-                            __rk = Some(_serde::__private::de::TagOrContentField::Tag);
-                            break;
-                        }
-                        _serde::__private::de::TagContentOtherField::Content => {
-                            __rk = Some(_serde::__private::de::TagOrContentField::Content);
-                            break;
-                        }
-                    }
-                }
-                __rk
-            } {
-                Some(_serde::__private::de::TagOrContentField::Tag) => {
-                    let __field = match _serde::de::MapAccess::next_value(&mut __map) {
-                        Ok(__val) => __val,
-                        Err(__err) => {
-                            return Err(__err);
-                        }
-                    };
-                    match {
-                        let mut __rk: Option<_serde::__private::de::TagOrContentField> = None;
-                        while let Some(__k) = match _serde::de::MapAccess::next_key_seed(
-                            &mut __map,
-                            _serde::__private::de::TagContentOtherFieldVisitor {
-                                tag: "id",
-                                content: "data",
-                            },
-                        ) {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        } {
-                            match __k {
-                                _serde::__private::de::TagContentOtherField::Other => {
-                                    match _serde::de::MapAccess::next_value::<_serde::de::IgnoredAny>(
-                                        &mut __map,
-                                    ) {
-                                        Ok(__val) => __val,
-                                        Err(__err) => {
-                                            return Err(__err);
-                                        }
-                                    };
-                                    continue;
-                                }
-                                _serde::__private::de::TagContentOtherField::Tag => {
-                                    __rk = Some(_serde::__private::de::TagOrContentField::Tag);
-                                    break;
-                                }
-                                _serde::__private::de::TagContentOtherField::Content => {
-                                    __rk = Some(_serde::__private::de::TagOrContentField::Content);
-                                    break;
-                                }
-                            }
-                        }
-                        __rk
-                    } {
-                        Some(_serde::__private::de::TagOrContentField::Tag) => {
-                            Err(<__A::Error as _serde::de::Error>::duplicate_field("id"))
-                        }
-                        Some(_serde::__private::de::TagOrContentField::Content) => {
-                            let __ret = match _serde::de::MapAccess::next_value_seed(
-                                &mut __map,
-                                __Seed {
-                                    field: __field,
-                                    marker: PhantomData,
-                                    lifetime: PhantomData,
-                                    map: self.map,
-                                },
-                            ) {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            };
-                            match {
-                                let mut __rk: Option<_serde::__private::de::TagOrContentField> =
-                                    None;
-                                while let Some(__k) = match _serde::de::MapAccess::next_key_seed(
-                                    &mut __map,
-                                    _serde::__private::de::TagContentOtherFieldVisitor {
-                                        tag: "id",
-                                        content: "data",
-                                    },
-                                ) {
-                                    Ok(__val) => __val,
-                                    Err(__err) => {
-                                        return Err(__err);
-                                    }
-                                } {
-                                    match __k {
-                                        _serde::__private::de::TagContentOtherField::Other => {
-                                            match _serde::de::MapAccess::next_value::<
-                                                _serde::de::IgnoredAny,
-                                            >(
-                                                &mut __map
-                                            ) {
-                                                Ok(__val) => __val,
-                                                Err(__err) => {
-                                                    return Err(__err);
-                                                }
-                                            };
-                                            continue;
-                                        }
-                                        _serde::__private::de::TagContentOtherField::Tag => {
-                                            __rk =
-                                                Some(_serde::__private::de::TagOrContentField::Tag);
-                                            break;
-                                        }
-                                        _serde::__private::de::TagContentOtherField::Content => {
-                                            __rk = Some(
-                                                _serde::__private::de::TagOrContentField::Content,
-                                            );
-                                            break;
-                                        }
-                                    }
-                                }
-                                __rk
-                            } {
-                                Some(_serde::__private::de::TagOrContentField::Tag) => {
-                                    Err(<__A::Error as _serde::de::Error>::duplicate_field("id"))
-                                }
-                                Some(_serde::__private::de::TagOrContentField::Content) => {
-                                    Err(<__A::Error as _serde::de::Error>::duplicate_field("data"))
-                                }
-                                None => Ok(__ret),
-                            }
-                        }
-                        None => {
-                            let __deserializer =
-                                MissingFieldDeserializer::<__A::Error>("data", PhantomData);
-
-                            let deserialization_fn = self
-                                .map
-                                .get(&__field)
-                                .ok_or_else(|| __A::Error::custom("unknown deserialization key"))?;
-
-                            deserialization_fn(&mut <dyn erased_serde::Deserializer>::erase(
-                                __deserializer,
-                            ))
-                            .map_err(__A::Error::custom)
-                        }
-                    }
-                }
-                Some(_serde::__private::de::TagOrContentField::Content) => {
-                    let __content = match _serde::de::MapAccess::next_value::<
-                        _serde::__private::de::Content,
-                    >(&mut __map)
-                    {
-                        Ok(__val) => __val,
-                        Err(__err) => {
-                            return Err(__err);
-                        }
-                    };
-                    match {
-                        let mut __rk: Option<_serde::__private::de::TagOrContentField> = None;
-                        while let Some(__k) = match _serde::de::MapAccess::next_key_seed(
-                            &mut __map,
-                            _serde::__private::de::TagContentOtherFieldVisitor {
-                                tag: "id",
-                                content: "data",
-                            },
-                        ) {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        } {
-                            match __k {
-                                _serde::__private::de::TagContentOtherField::Other => {
-                                    match _serde::de::MapAccess::next_value::<_serde::de::IgnoredAny>(
-                                        &mut __map,
-                                    ) {
-                                        Ok(__val) => __val,
-                                        Err(__err) => {
-                                            return Err(__err);
-                                        }
-                                    };
-                                    continue;
-                                }
-                                _serde::__private::de::TagContentOtherField::Tag => {
-                                    __rk = Some(_serde::__private::de::TagOrContentField::Tag);
-                                    break;
-                                }
-                                _serde::__private::de::TagContentOtherField::Content => {
-                                    __rk = Some(_serde::__private::de::TagOrContentField::Content);
-                                    break;
-                                }
-                            }
-                        }
-                        __rk
-                    } {
-                        Some(_serde::__private::de::TagOrContentField::Tag) => {
-                            let __deserializer = _serde::__private::de::ContentDeserializer::<
-                                __A::Error,
-                            >::new(__content);
-                            let __val = match _serde::de::MapAccess::next_value(&mut __map) {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            };
-
-                            let deserialization_fn = self
-                                .map
-                                .get(&__val)
-                                .ok_or_else(|| __A::Error::custom("unknown deserialization key"))?;
-
-                            let __val2 = deserialization_fn(
-                                &mut <dyn erased_serde::Deserializer>::erase(__deserializer),
-                            )
-                            .map_err(__A::Error::custom);
-
-                            let __ret = match __val2 {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            };
-                            match {
-                                let mut __rk: Option<_serde::__private::de::TagOrContentField> =
-                                    None;
-                                while let Some(__k) = match _serde::de::MapAccess::next_key_seed(
-                                    &mut __map,
-                                    _serde::__private::de::TagContentOtherFieldVisitor {
-                                        tag: "id",
-                                        content: "data",
-                                    },
-                                ) {
-                                    Ok(__val) => __val,
-                                    Err(__err) => {
-                                        return Err(__err);
-                                    }
-                                } {
-                                    match __k {
-                                        _serde::__private::de::TagContentOtherField::Other => {
-                                            match _serde::de::MapAccess::next_value::<
-                                                _serde::de::IgnoredAny,
-                                            >(
-                                                &mut __map
-                                            ) {
-                                                Ok(__val) => __val,
-                                                Err(__err) => {
-                                                    return Err(__err);
-                                                }
-                                            };
-                                            continue;
-                                        }
-                                        _serde::__private::de::TagContentOtherField::Tag => {
-                                            __rk =
-                                                Some(_serde::__private::de::TagOrContentField::Tag);
-                                            break;
-                                        }
-                                        _serde::__private::de::TagContentOtherField::Content => {
-                                            __rk = Some(
-                                                _serde::__private::de::TagOrContentField::Content,
-                                            );
-                                            break;
-                                        }
-                                    }
-                                }
-                                __rk
-                            } {
-                                Some(_serde::__private::de::TagOrContentField::Tag) => {
-                                    Err(<__A::Error as _serde::de::Error>::duplicate_field("id"))
-                                }
-                                Some(_serde::__private::de::TagOrContentField::Content) => {
-                                    Err(<__A::Error as _serde::de::Error>::duplicate_field("data"))
-                                }
-                                None => Ok(__ret),
-                            }
-                        }
-                        Some(_serde::__private::de::TagOrContentField::Content) => {
-                            Err(<__A::Error as _serde::de::Error>::duplicate_field("data"))
-                        }
-                        None => Err(<__A::Error as _serde::de::Error>::missing_field("id")),
-                    }
-                }
-                None => Err(<__A::Error as _serde::de::Error>::missing_field("id")),
-            }
-        }
-        fn visit_seq<__A>(self, mut __seq: __A) -> Result<Self::Value, __A::Error>
-        where
-            __A: _serde::de::SeqAccess<'de>,
-        {
-            match match _serde::de::SeqAccess::next_element(&mut __seq) {
-                Ok(__val) => __val,
-                Err(__err) => {
-                    return Err(__err);
-                }
-            } {
-                Some(__field) => {
-                    match match _serde::de::SeqAccess::next_element_seed(
-                        &mut __seq,
-                        __Seed::<K, T> {
-                            field: __field,
-                            marker: PhantomData,
-                            lifetime: PhantomData,
-                            map: self.map,
-                        },
-                    ) {
-                        Ok(__val) => __val,
-                        Err(__err) => {
-                            return Err(__err);
-                        }
-                    } {
-                        Some(__ret) => Ok(__ret),
-                        None => Err(_serde::de::Error::invalid_length(1, &self)),
-                    }
-                }
-                None => Err(_serde::de::Error::invalid_length(0, &self)),
-            }
-        }
-    }
-    const FIELDS: &'static [&'static str] = &["id", "data"];
-    _serde::Deserializer::deserialize_struct(
-        deserializer,
-        "T",
-        FIELDS,
-        __Visitor::<K, T> {
-            marker: PhantomData::<T>,
-            lifetime: PhantomData,
-            map: &deserialization_map,
+    deserializer.deserialize_struct(
+        type_name,
+        fields,
+        KeyedDataVisitor::<K, T> {
+            deserialization_map: &deserialization_map,
+            key_name: fields[0],
+            value_name: fields[1],
         },
     )
 }
@@ -502,25 +92,22 @@ mod tests {
                 struct __Visitor;
                 impl<'de> _serde::de::Visitor<'de> for __Visitor {
                     type Value = ();
-                    fn expecting(
-                        &self,
-                        __formatter: &mut _serde::__private::Formatter,
-                    ) -> _serde::__private::fmt::Result {
-                        _serde::__private::Formatter::write_str(__formatter, "unit struct ()")
+                    fn expecting(&self, __formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        std::fmt::Formatter::write_str(__formatter, "unit struct ()")
                     }
                     #[inline]
-                    fn visit_unit<__E>(self) -> _serde::__private::Result<Self::Value, __E>
+                    fn visit_unit<__E>(self) -> Result<Self::Value, __E>
                     where
-                        __E: _serde::de::Error,
+                        __E: serde::de::Error,
                     {
-                        _serde::__private::Ok(())
+                        Ok(())
                     }
                     #[inline]
-                    fn visit_none<__E>(self) -> _serde::__private::Result<Self::Value, __E>
+                    fn visit_none<__E>(self) -> Result<Self::Value, __E>
                     where
-                        __E: _serde::de::Error,
+                        __E: serde::de::Error,
                     {
-                        _serde::__private::Ok(())
+                        Ok(())
                     }
                 }
                 _serde::Deserializer::deserialize_unit_struct(deserializer, "()", __Visitor)?;
@@ -530,19 +117,19 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json1);
-        let result = deserialize_by_map(&mut deserializer, &map).unwrap();
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
         assert_eq!(result, Test::A(123));
 
         let mut deserializer = serde_json::Deserializer::from_str(json2);
-        let result = deserialize_by_map(&mut deserializer, &map).unwrap();
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
         assert_eq!(result, Test::B("BLAH".to_string()));
 
         let mut deserializer = serde_json::Deserializer::from_str(json3);
-        let result = deserialize_by_map(&mut deserializer, &map).unwrap();
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
         assert_eq!(result, Test::C);
 
         let mut deserializer = serde_json::Deserializer::from_str(json4);
-        let result = deserialize_by_map(&mut deserializer, &map).unwrap();
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
         assert_eq!(result, Test::C);
     }
 
@@ -571,25 +158,22 @@ mod tests {
                 struct __Visitor;
                 impl<'de> _serde::de::Visitor<'de> for __Visitor {
                     type Value = ();
-                    fn expecting(
-                        &self,
-                        __formatter: &mut _serde::__private::Formatter,
-                    ) -> _serde::__private::fmt::Result {
-                        _serde::__private::Formatter::write_str(__formatter, "unit struct ()")
+                    fn expecting(&self, __formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                        std::fmt::Formatter::write_str(__formatter, "unit struct ()")
                     }
                     #[inline]
-                    fn visit_unit<__E>(self) -> _serde::__private::Result<Self::Value, __E>
+                    fn visit_unit<__E>(self) -> Result<Self::Value, __E>
                     where
-                        __E: _serde::de::Error,
+                        __E: serde::de::Error,
                     {
-                        _serde::__private::Ok(())
+                        Ok(())
                     }
                     #[inline]
-                    fn visit_none<__E>(self) -> _serde::__private::Result<Self::Value, __E>
+                    fn visit_none<__E>(self) -> Result<Self::Value, __E>
                     where
-                        __E: _serde::de::Error,
+                        __E: serde::de::Error,
                     {
-                        _serde::__private::Ok(())
+                        Ok(())
                     }
                 }
                 _serde::Deserializer::deserialize_unit_struct(deserializer, "()", __Visitor)?;
@@ -599,15 +183,15 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json1);
-        let result = deserialize_by_map(&mut deserializer, &map);
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
         assert!(result.is_err());
 
         let mut deserializer = serde_json::Deserializer::from_str(json2);
-        let result = deserialize_by_map(&mut deserializer, &map);
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
         assert!(result.is_err());
 
         let mut deserializer = serde_json::Deserializer::from_str(json3);
-        let result = deserialize_by_map(&mut deserializer, &map).unwrap();
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
         assert_eq!(result, Test::C);
     }
 
@@ -626,7 +210,7 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json);
-        let result = deserialize_by_map(&mut deserializer, &map);
+        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
         assert!(result.is_err());
     }
 }
