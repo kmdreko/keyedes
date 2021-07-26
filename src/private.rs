@@ -11,7 +11,7 @@ use serde::{Deserialize, Deserializer};
 
 use crate::DeserializationMap;
 
-pub struct MissingFieldDeserializer<E>(pub &'static str, pub PhantomData<E>);
+struct MissingFieldDeserializer<E>(&'static str, PhantomData<E>);
 
 impl<'de, E> Deserializer<'de> for MissingFieldDeserializer<E>
 where
@@ -54,9 +54,9 @@ where
     }
 }
 
-pub struct DataDeserializeSeed<'a, K, T> {
-    pub field: K,
-    pub deserialization_map: &'a DeserializationMap<K, T>,
+struct DataDeserializeSeed<'a, K, T> {
+    field: K,
+    deserialization_map: &'a DeserializationMap<K, T>,
 }
 
 impl<'de, 'a, K, T> DeserializeSeed<'de> for DataDeserializeSeed<'a, K, T>
@@ -78,13 +78,13 @@ where
     }
 }
 
-pub struct KeyedDataVisitor<'a, K, T> {
+pub struct KeyValueVisitor<'a, K, T> {
     pub deserialization_map: &'a DeserializationMap<K, T>,
     pub key_name: &'static str,
     pub value_name: &'static str,
 }
 
-impl<'de, 'a, K, T> Visitor<'de> for KeyedDataVisitor<'a, K, T>
+impl<'de, 'a, K, T> Visitor<'de> for KeyValueVisitor<'a, K, T>
 where
     K: Deserialize<'de> + Eq + Hash,
 {
@@ -92,32 +92,19 @@ where
     fn expecting(&self, __formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         std::fmt::Formatter::write_str(__formatter, "adjacently tagged enum TempEnum")
     }
-    fn visit_map<__A>(self, mut __map: __A) -> Result<Self::Value, __A::Error>
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
     where
-        __A: MapAccess<'de>,
+        A: MapAccess<'de>,
     {
         match {
             let mut __rk: Option<TagOrContentField> = None;
-            while let Some(__k) = match MapAccess::next_key_seed(
-                &mut __map,
-                TagContentOtherFieldVisitor {
-                    tag: self.key_name,
-                    content: self.value_name,
-                },
-            ) {
-                Ok(__val) => __val,
-                Err(__err) => {
-                    return Err(__err);
-                }
-            } {
+            while let Some(__k) = map.next_key_seed(TagContentOtherFieldVisitor {
+                tag: self.key_name,
+                content: self.value_name,
+            })? {
                 match __k {
                     TagContentOtherField::Other => {
-                        match MapAccess::next_value::<IgnoredAny>(&mut __map) {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        };
+                        map.next_value::<IgnoredAny>()?;
                         continue;
                     }
                     TagContentOtherField::Tag => {
@@ -133,34 +120,16 @@ where
             __rk
         } {
             Some(TagOrContentField::Tag) => {
-                let __field = match MapAccess::next_value(&mut __map) {
-                    Ok(__val) => __val,
-                    Err(__err) => {
-                        return Err(__err);
-                    }
-                };
+                let __field = map.next_value()?;
                 match {
                     let mut __rk: Option<TagOrContentField> = None;
-                    while let Some(__k) = match MapAccess::next_key_seed(
-                        &mut __map,
-                        TagContentOtherFieldVisitor {
-                            tag: self.key_name,
-                            content: self.value_name,
-                        },
-                    ) {
-                        Ok(__val) => __val,
-                        Err(__err) => {
-                            return Err(__err);
-                        }
-                    } {
+                    while let Some(__k) = map.next_key_seed(TagContentOtherFieldVisitor {
+                        tag: self.key_name,
+                        content: self.value_name,
+                    })? {
                         match __k {
                             TagContentOtherField::Other => {
-                                match MapAccess::next_value::<IgnoredAny>(&mut __map) {
-                                    Ok(__val) => __val,
-                                    Err(__err) => {
-                                        return Err(__err);
-                                    }
-                                };
+                                map.next_value::<IgnoredAny>()?;
                                 continue;
                             }
                             TagContentOtherField::Tag => {
@@ -176,43 +145,24 @@ where
                     __rk
                 } {
                     Some(TagOrContentField::Tag) => Err(
-                        <__A::Error as serde::de::Error>::duplicate_field(self.key_name),
+                        <A::Error as serde::de::Error>::duplicate_field(self.key_name),
                     ),
                     Some(TagOrContentField::Content) => {
-                        let __ret = match MapAccess::next_value_seed(
-                            &mut __map,
-                            DataDeserializeSeed {
-                                field: __field,
-                                deserialization_map: self.deserialization_map,
-                            },
-                        ) {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        };
+                        let __ret = map.next_value_seed(DataDeserializeSeed {
+                            field: __field,
+                            deserialization_map: self.deserialization_map,
+                        })?;
                         match {
                             let mut __rk: Option<TagOrContentField> = None;
-                            while let Some(__k) = match MapAccess::next_key_seed(
-                                &mut __map,
-                                TagContentOtherFieldVisitor {
+                            while let Some(__k) =
+                                map.next_key_seed(TagContentOtherFieldVisitor {
                                     tag: self.key_name,
                                     content: self.value_name,
-                                },
-                            ) {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            } {
+                                })?
+                            {
                                 match __k {
                                     TagContentOtherField::Other => {
-                                        match MapAccess::next_value::<IgnoredAny>(&mut __map) {
-                                            Ok(__val) => __val,
-                                            Err(__err) => {
-                                                return Err(__err);
-                                            }
-                                        };
+                                        map.next_value::<IgnoredAny>()?;
                                         continue;
                                     }
                                     TagContentOtherField::Tag => {
@@ -228,61 +178,41 @@ where
                             __rk
                         } {
                             Some(TagOrContentField::Tag) => Err(
-                                <__A::Error as serde::de::Error>::duplicate_field(self.key_name),
+                                <A::Error as serde::de::Error>::duplicate_field(self.key_name),
                             ),
                             Some(TagOrContentField::Content) => Err(
-                                <__A::Error as serde::de::Error>::duplicate_field(self.value_name),
+                                <A::Error as serde::de::Error>::duplicate_field(self.value_name),
                             ),
                             None => Ok(__ret),
                         }
                     }
                     None => {
-                        let __deserializer = crate::private::MissingFieldDeserializer::<__A::Error>(
-                            self.value_name,
-                            PhantomData,
-                        );
+                        let __deserializer =
+                            MissingFieldDeserializer::<A::Error>(self.value_name, PhantomData);
 
                         let deserialization_fn = self
                             .deserialization_map
                             .get(&__field)
-                            .ok_or_else(|| __A::Error::custom("unknown deserialization key"))?;
+                            .ok_or_else(|| A::Error::custom("unknown deserialization key"))?;
 
                         deserialization_fn(&mut <dyn erased_serde::Deserializer>::erase(
                             __deserializer,
                         ))
-                        .map_err(__A::Error::custom)
+                        .map_err(A::Error::custom)
                     }
                 }
             }
             Some(TagOrContentField::Content) => {
-                let __content = match MapAccess::next_value::<Content>(&mut __map) {
-                    Ok(__val) => __val,
-                    Err(__err) => {
-                        return Err(__err);
-                    }
-                };
+                let __content = map.next_value::<Content>()?;
                 match {
                     let mut __rk: Option<TagOrContentField> = None;
-                    while let Some(__k) = match MapAccess::next_key_seed(
-                        &mut __map,
-                        TagContentOtherFieldVisitor {
-                            tag: self.key_name,
-                            content: self.value_name,
-                        },
-                    ) {
-                        Ok(__val) => __val,
-                        Err(__err) => {
-                            return Err(__err);
-                        }
-                    } {
+                    while let Some(__k) = map.next_key_seed(TagContentOtherFieldVisitor {
+                        tag: self.key_name,
+                        content: self.value_name,
+                    })? {
                         match __k {
                             TagContentOtherField::Other => {
-                                match MapAccess::next_value::<IgnoredAny>(&mut __map) {
-                                    Ok(__val) => __val,
-                                    Err(__err) => {
-                                        return Err(__err);
-                                    }
-                                };
+                                map.next_value::<IgnoredAny>()?;
                                 continue;
                             }
                             TagContentOtherField::Tag => {
@@ -298,52 +228,30 @@ where
                     __rk
                 } {
                     Some(TagOrContentField::Tag) => {
-                        let __deserializer = ContentDeserializer::<__A::Error>::new(__content);
-                        let __val = match MapAccess::next_value(&mut __map) {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        };
+                        let __deserializer = ContentDeserializer::<A::Error>::new(__content);
+                        let __val = map.next_value()?;
 
                         let deserialization_fn = self
                             .deserialization_map
                             .get(&__val)
-                            .ok_or_else(|| __A::Error::custom("unknown deserialization key"))?;
+                            .ok_or_else(|| A::Error::custom("unknown deserialization key"))?;
 
-                        let __val2 = deserialization_fn(
+                        let __ret = deserialization_fn(
                             &mut <dyn erased_serde::Deserializer>::erase(__deserializer),
                         )
-                        .map_err(__A::Error::custom);
+                        .map_err(A::Error::custom)?;
 
-                        let __ret = match __val2 {
-                            Ok(__val) => __val,
-                            Err(__err) => {
-                                return Err(__err);
-                            }
-                        };
                         match {
                             let mut __rk: Option<TagOrContentField> = None;
-                            while let Some(__k) = match MapAccess::next_key_seed(
-                                &mut __map,
-                                TagContentOtherFieldVisitor {
+                            while let Some(__k) =
+                                map.next_key_seed(TagContentOtherFieldVisitor {
                                     tag: self.key_name,
                                     content: self.value_name,
-                                },
-                            ) {
-                                Ok(__val) => __val,
-                                Err(__err) => {
-                                    return Err(__err);
-                                }
-                            } {
+                                })?
+                            {
                                 match __k {
                                     TagContentOtherField::Other => {
-                                        match MapAccess::next_value::<IgnoredAny>(&mut __map) {
-                                            Ok(__val) => __val,
-                                            Err(__err) => {
-                                                return Err(__err);
-                                            }
-                                        };
+                                        map.next_value::<IgnoredAny>()?;
                                         continue;
                                     }
                                     TagContentOtherField::Tag => {
@@ -359,50 +267,33 @@ where
                             __rk
                         } {
                             Some(TagOrContentField::Tag) => Err(
-                                <__A::Error as serde::de::Error>::duplicate_field(self.key_name),
+                                <A::Error as serde::de::Error>::duplicate_field(self.key_name),
                             ),
                             Some(TagOrContentField::Content) => Err(
-                                <__A::Error as serde::de::Error>::duplicate_field(self.value_name),
+                                <A::Error as serde::de::Error>::duplicate_field(self.value_name),
                             ),
                             None => Ok(__ret),
                         }
                     }
                     Some(TagOrContentField::Content) => Err(
-                        <__A::Error as serde::de::Error>::duplicate_field(self.value_name),
+                        <A::Error as serde::de::Error>::duplicate_field(self.value_name),
                     ),
-                    None => Err(<__A::Error as serde::de::Error>::missing_field(
-                        self.key_name,
-                    )),
+                    None => Err(<A::Error as serde::de::Error>::missing_field(self.key_name)),
                 }
             }
-            None => Err(<__A::Error as serde::de::Error>::missing_field(
-                self.key_name,
-            )),
+            None => Err(<A::Error as serde::de::Error>::missing_field(self.key_name)),
         }
     }
-    fn visit_seq<__A>(self, mut __seq: __A) -> Result<Self::Value, __A::Error>
+    fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
     where
-        __A: SeqAccess<'de>,
+        A: SeqAccess<'de>,
     {
-        match match SeqAccess::next_element(&mut __seq) {
-            Ok(__val) => __val,
-            Err(__err) => {
-                return Err(__err);
-            }
-        } {
+        match seq.next_element()? {
             Some(__field) => {
-                match match SeqAccess::next_element_seed(
-                    &mut __seq,
-                    DataDeserializeSeed::<K, T> {
-                        field: __field,
-                        deserialization_map: self.deserialization_map,
-                    },
-                ) {
-                    Ok(__val) => __val,
-                    Err(__err) => {
-                        return Err(__err);
-                    }
-                } {
+                match seq.next_element_seed(DataDeserializeSeed::<K, T> {
+                    field: __field,
+                    deserialization_map: self.deserialization_map,
+                })? {
                     Some(__ret) => Ok(__ret),
                     None => Err(serde::de::Error::invalid_length(1, &self)),
                 }

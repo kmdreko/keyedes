@@ -4,7 +4,7 @@ use std::ops::{Deref, DerefMut};
 
 use serde::{Deserialize, Deserializer};
 
-use crate::private::KeyedDataVisitor;
+use crate::private::KeyValueVisitor;
 
 mod private;
 
@@ -47,7 +47,7 @@ where
     deserializer.deserialize_struct(
         type_name,
         fields,
-        KeyedDataVisitor::<K, T> {
+        KeyValueVisitor::<K, T> {
             deserialization_map: &deserialization_map,
             key_name: fields[0],
             value_name: fields[1],
