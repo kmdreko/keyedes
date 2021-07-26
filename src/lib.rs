@@ -8,51 +8,55 @@ use crate::private::KeyValueVisitor;
 
 mod private;
 
-pub struct DeserializationMap<K, T>(
-    HashMap<K, Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>>,
-);
+pub type DeserializationFn<T> =
+    Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>;
+
+pub struct DeserializationMap<K, T> {
+    type_name: &'static str,
+    field_names: &'static [&'static str; 2],
+    map: HashMap<K, DeserializationFn<T>>,
+}
 
 impl<K, T> DeserializationMap<K, T> {
-    pub fn new() -> DeserializationMap<K, T> {
-        DeserializationMap(HashMap::new())
+    pub fn new(
+        type_name: &'static str,
+        field_names: &'static [&'static str; 2],
+    ) -> DeserializationMap<K, T> {
+        DeserializationMap {
+            type_name,
+            field_names,
+            map: HashMap::new(),
+        }
+    }
+
+    pub fn deserialize_by_key<'de, D>(&self, deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        K: Deserialize<'de> + Eq + Hash,
+    {
+        deserializer.deserialize_struct(
+            self.type_name,
+            self.field_names,
+            KeyValueVisitor::<K, T> {
+                deserialization_map: self,
+                key_name: self.field_names[0],
+                value_name: self.field_names[1],
+            },
+        )
     }
 }
 
 impl<K, T> Deref for DeserializationMap<K, T> {
-    type Target = HashMap<
-        K,
-        Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, erased_serde::Error>>,
-    >;
+    type Target = HashMap<K, DeserializationFn<T>>;
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.map
     }
 }
 
 impl<K, T> DerefMut for DeserializationMap<K, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
+        &mut self.map
     }
-}
-
-pub fn deserialize_by_map<'de, D, K, T>(
-    deserializer: D,
-    deserialization_map: &DeserializationMap<K, T>,
-    type_name: &'static str,
-    fields: &'static [&'static str; 2],
-) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-    K: Deserialize<'de> + Eq + Hash,
-{
-    deserializer.deserialize_struct(
-        type_name,
-        fields,
-        KeyValueVisitor::<K, T> {
-            deserialization_map: &deserialization_map,
-            key_name: fields[0],
-            value_name: fields[1],
-        },
-    )
 }
 
 #[cfg(test)]
@@ -73,7 +77,7 @@ mod tests {
         let json3 = r#"{"id":"C","data":null}"#;
         let json4 = r#"{"id":"C"}"#;
 
-        let mut map = DeserializationMap::<String, Test>::new();
+        let mut map = DeserializationMap::<String, Test>::new("Test", &["id", "data"]);
         map.insert(
             "A".to_string(),
             Box::new(|deserializer| i32::deserialize(deserializer).map(Test::A)),
@@ -117,19 +121,19 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json1);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
+        let result = map.deserialize_by_key(&mut deserializer).unwrap();
         assert_eq!(result, Test::A(123));
 
         let mut deserializer = serde_json::Deserializer::from_str(json2);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
+        let result = map.deserialize_by_key(&mut deserializer).unwrap();
         assert_eq!(result, Test::B("BLAH".to_string()));
 
         let mut deserializer = serde_json::Deserializer::from_str(json3);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
+        let result = map.deserialize_by_key(&mut deserializer).unwrap();
         assert_eq!(result, Test::C);
 
         let mut deserializer = serde_json::Deserializer::from_str(json4);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
+        let result = map.deserialize_by_key(&mut deserializer).unwrap();
         assert_eq!(result, Test::C);
     }
 
@@ -139,7 +143,7 @@ mod tests {
         let json2 = r#"{"id":"B"}"#;
         let json3 = r#"{"id":"C"}"#;
 
-        let mut map = DeserializationMap::<String, Test>::new();
+        let mut map = DeserializationMap::<String, Test>::new("Test", &["id", "data"]);
         map.insert(
             "A".to_string(),
             Box::new(|deserializer| i32::deserialize(deserializer).map(Test::A)),
@@ -183,15 +187,15 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json1);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
+        let result = map.deserialize_by_key(&mut deserializer);
         assert!(result.is_err());
 
         let mut deserializer = serde_json::Deserializer::from_str(json2);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
+        let result = map.deserialize_by_key(&mut deserializer);
         assert!(result.is_err());
 
         let mut deserializer = serde_json::Deserializer::from_str(json3);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]).unwrap();
+        let result = map.deserialize_by_key(&mut deserializer).unwrap();
         assert_eq!(result, Test::C);
     }
 
@@ -199,7 +203,7 @@ mod tests {
     fn returns_error_on_unknown_key_type() {
         let json = r#"{"id":"D","data":5.02}"#;
 
-        let mut map = DeserializationMap::<String, Test>::new();
+        let mut map = DeserializationMap::<String, Test>::new("Test", &["id", "data"]);
         map.insert(
             "A".to_string(),
             Box::new(|deserializer| i32::deserialize(deserializer).map(Test::A)),
@@ -210,7 +214,7 @@ mod tests {
         );
 
         let mut deserializer = serde_json::Deserializer::from_str(json);
-        let result = deserialize_by_map(&mut deserializer, &map, "Test", &["id", "data"]);
+        let result = map.deserialize_by_key(&mut deserializer);
         assert!(result.is_err());
     }
 }
