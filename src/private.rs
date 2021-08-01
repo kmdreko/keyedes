@@ -90,7 +90,7 @@ where
 {
     type Value = T;
     fn expecting(&self, __formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-        std::fmt::Formatter::write_str(__formatter, "adjacently tagged enum TempEnum")
+        std::fmt::Formatter::write_str(__formatter, "adjacently tagged enum")
     }
     fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
     where
@@ -302,3 +302,28 @@ where
         }
     }
 }
+
+// // apparently this is how you're supposed to deserialize a unit
+// // struct
+// struct __Visitor;
+// impl<'de> _serde::de::Visitor<'de> for __Visitor {
+//     type Value = ();
+//     fn expecting(&self, __formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+//         std::fmt::Formatter::write_str(__formatter, "unit struct ()")
+//     }
+//     #[inline]
+//     fn visit_unit<__E>(self) -> Result<Self::Value, __E>
+//     where
+//         __E: serde::de::Error,
+//     {
+//         Ok(())
+//     }
+//     #[inline]
+//     fn visit_none<__E>(self) -> Result<Self::Value, __E>
+//     where
+//         __E: serde::de::Error,
+//     {
+//         Ok(())
+//     }
+// }
+// _serde::Deserializer::deserialize_unit_struct(deserializer, "()", __Visitor)?;
