@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::hash::Hash;
 use std::ops::{Deref, DerefMut};
 
-use serde::{Deserialize, Deserializer};
+use serde::ser::SerializeStruct;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::private::KeyValueVisitor;
 
@@ -95,32 +96,89 @@ impl<K, T> DerefMut for DeserializationMap<K, T> {
     }
 }
 
+pub struct SerializationMap<K, V> {
+    type_name: &'static str,
+    field_names: &'static [&'static str; 2],
+    key_fn: Box<dyn Fn(&V) -> K>,
+}
+
+impl<K, V> SerializationMap<K, V> {
+    pub fn new<F>(
+        type_name: &'static str,
+        field_names: &'static [&'static str; 2],
+        key_fn: F,
+    ) -> SerializationMap<K, V>
+    where
+        F: Fn(&V) -> K + 'static,
+    {
+        SerializationMap {
+            type_name,
+            field_names,
+            key_fn: Box::new(key_fn),
+        }
+    }
+}
+
+impl<K, V> SerializationMap<K, V> {
+    pub fn serialize_with_key<S>(&self, v: &V, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+        K: Serialize,
+        V: erased_serde::Serialize,
+    {
+        struct ValueWrapper<'a, V>(&'a V);
+        impl<'a, V> Serialize for ValueWrapper<'a, V>
+        where
+            V: erased_serde::Serialize,
+        {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                erased_serde::serialize(self.0, serializer)
+            }
+        }
+
+        let mut state = serializer.serialize_struct(self.type_name, 2)?;
+        state.serialize_field(self.field_names[0], &(self.key_fn)(v))?;
+        state.serialize_field(self.field_names[1], &ValueWrapper(v))?;
+        state.end()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     trait TestTrait {
+        fn key(&self) -> &'static str;
         fn name(&self) -> &str;
     }
 
-    #[derive(Deserialize)]
+    #[derive(Serialize, Deserialize)]
     struct TestStructA {
         name: String,
     }
 
     impl TestTrait for TestStructA {
+        fn key(&self) -> &'static str {
+            "A"
+        }
         fn name(&self) -> &str {
             self.name.as_str()
         }
     }
 
-    #[derive(Deserialize, Debug, PartialEq, Eq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     enum TestEnumB {
         Pizza,
         Broccoli,
     }
 
     impl TestTrait for TestEnumB {
+        fn key(&self) -> &'static str {
+            "B"
+        }
         fn name(&self) -> &str {
             match self {
                 TestEnumB::Pizza => "pizza",
@@ -129,10 +187,13 @@ mod tests {
         }
     }
 
-    #[derive(Deserialize)]
+    #[derive(Serialize, Deserialize)]
     struct TestUnitC;
 
     impl TestTrait for TestUnitC {
+        fn key(&self) -> &'static str {
+            "C"
+        }
         fn name(&self) -> &str {
             "just a c"
         }
@@ -210,5 +271,23 @@ mod tests {
         let mut deserializer = serde_json::Deserializer::from_str(json);
         let result = map.deserialize_by_key(&mut deserializer);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn seralize_with_key_creates_correct_output() {
+        let value1 = Box::new(TestStructA {
+            name: "chuck norris".to_string(),
+        }) as Box<dyn TestTrait>;
+        let value2 = Box::new(TestEnumB::Pizza) as Box<dyn TestTrait>;
+        let value3 = Box::new(TestUnitC) as Box<dyn TestTrait>;
+
+        let map = SerializationMap::<&'static str, Box<dyn TestTrait>>::new(
+            "Box<dyn TestTrait>",
+            &["id", "data"],
+            |t| t.key(),
+        );
+
+        let mut serializer = serde_json::Serializer::new(Vec::new());
+        //map.serialize_with_key(&value1, &mut serializer).unwrap();
     }
 }
