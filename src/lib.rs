@@ -96,13 +96,13 @@ impl<K, T> DerefMut for DeserializationMap<K, T> {
     }
 }
 
-pub struct SerializationMap<K, V> {
+pub struct SerializationMap<K, V: ?Sized> {
     type_name: &'static str,
     field_names: &'static [&'static str; 2],
     key_fn: Box<dyn Fn(&V) -> K>,
 }
 
-impl<K, V> SerializationMap<K, V> {
+impl<K, V: ?Sized> SerializationMap<K, V> {
     pub fn new<F>(
         type_name: &'static str,
         field_names: &'static [&'static str; 2],
@@ -119,15 +119,18 @@ impl<K, V> SerializationMap<K, V> {
     }
 }
 
-impl<K, V> SerializationMap<K, V> {
-    pub fn serialize_with_key<S>(&self, v: &V, serializer: S) -> Result<S::Ok, S::Error>
+impl<K, V: ?Sized> SerializationMap<K, V>
+where
+    K: Serialize,
+    V: erased_serde::Serialize,
+{
+    pub fn serialize_with_key<S, VI>(&self, v: &VI, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
-        K: Serialize,
-        V: erased_serde::Serialize,
+        VI: AsRef<V>,
     {
-        struct ValueWrapper<'a, V>(&'a V);
-        impl<'a, V> Serialize for ValueWrapper<'a, V>
+        struct ValueWrapper<'a, V: ?Sized>(&'a V);
+        impl<'a, V: ?Sized> Serialize for ValueWrapper<'a, V>
         where
             V: erased_serde::Serialize,
         {
@@ -139,6 +142,7 @@ impl<K, V> SerializationMap<K, V> {
             }
         }
 
+        let v = v.as_ref();
         let mut state = serializer.serialize_struct(self.type_name, 2)?;
         state.serialize_field(self.field_names[0], &(self.key_fn)(v))?;
         state.serialize_field(self.field_names[1], &ValueWrapper(v))?;
@@ -150,7 +154,7 @@ impl<K, V> SerializationMap<K, V> {
 mod tests {
     use super::*;
 
-    trait TestTrait {
+    trait TestTrait: erased_serde::Serialize {
         fn key(&self) -> &'static str;
         fn name(&self) -> &str;
     }
@@ -281,13 +285,86 @@ mod tests {
         let value2 = Box::new(TestEnumB::Pizza) as Box<dyn TestTrait>;
         let value3 = Box::new(TestUnitC) as Box<dyn TestTrait>;
 
-        let map = SerializationMap::<&'static str, Box<dyn TestTrait>>::new(
+        let map = SerializationMap::<&'static str, dyn TestTrait>::new(
             "Box<dyn TestTrait>",
             &["id", "data"],
             |t| t.key(),
         );
 
         let mut serializer = serde_json::Serializer::new(Vec::new());
-        //map.serialize_with_key(&value1, &mut serializer).unwrap();
+        map.serialize_with_key(&value1, &mut serializer).unwrap();
+        assert_eq!(
+            serializer.into_inner().as_slice(),
+            br#"{"id":"A","data":{"name":"chuck norris"}}"#
+        );
+
+        let mut serializer = serde_json::Serializer::new(Vec::new());
+        map.serialize_with_key(&value2, &mut serializer).unwrap();
+        assert_eq!(
+            serializer.into_inner().as_slice(),
+            br#"{"id":"B","data":"Pizza"}"#
+        );
+
+        let mut serializer = serde_json::Serializer::new(Vec::new());
+        map.serialize_with_key(&value3, &mut serializer).unwrap();
+        assert_eq!(
+            serializer.into_inner().as_slice(),
+            br#"{"id":"C","data":null}"#
+        );
+    }
+
+    #[test]
+    fn ergonomics() {
+        fn deserialize_box_dyn_testtrait<'de, D>(
+            deserializer: D,
+        ) -> Result<Box<dyn TestTrait>, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            static TestDeserializationMap: DeserializationMap<String, Box<dyn TestTrait>> = {
+                let mut map = DeserializationMap::new("Box<dyn TestTrait>", &["id", "data"]);
+
+                insert_fn_boxed!(&mut map, "A".to_string(), TestStructA::deserialize);
+                insert_fn_boxed!(&mut map, "B".to_string(), TestEnumB::deserialize);
+                insert_fn_boxed!(&mut map, "C".to_string(), TestUnitC::deserialize);
+
+                map
+            };
+
+            TestDeserializationMap.deserialize_by_key(deserializer)
+        }
+
+        fn serialize_box_dyn_testtrait<S>(
+            v: Box<dyn TestTrait>,
+            serializer: S,
+        ) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            struct ValueWrapper<'a, V: ?Sized>(&'a V);
+            impl<'a, V: ?Sized> Serialize for ValueWrapper<'a, V>
+            where
+                V: erased_serde::Serialize,
+            {
+                fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+                where
+                    S: Serializer,
+                {
+                    erased_serde::serialize(self.0, serializer)
+                }
+            }
+
+            let v = v.as_ref();
+            let mut state = serializer.serialize_struct("", 2)?;
+            state.serialize_field(self.field_names[0], &(self.key_fn)(v))?;
+            state.serialize_field(self.field_names[1], &ValueWrapper(v))?;
+            state.end()
+        }
+
+        #[derive(Serialize, Deserialize)]
+        struct Wrapper {
+            #[serde(deserialize_with = "deserialize_box_dyn_testtrait")]
+            value: Box<dyn TestTrait>,
+        }
     }
 }
