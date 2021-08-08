@@ -1,11 +1,18 @@
-//! This crate is designed to help serialize and deserialize trait objects by
-//! allowing users to encode keys into the serialized format that can then be
-//! used when deserializing. It primarily provides `serialize_with_key` and
-//! `deserialize_by_key` to facilitate that.
+//! # Keyed Deserialization
+//!
+//! This crate is designed to help serialize and deserialize differing objects
+//! by allowing users to encode keys into the serialized format that can then be
+//! used when deserializing. It mainly provides [`serialize_with_key()`] and
+//! [`deserialize_by_key()`] to facilitate that.
+//!
+//! The primary motivator is the deserialization of trait objects. If you have
+//! the option, the [`typetag`](https://crates.io/crates/typetag) crate is
+//! easier to use, whereas this crate is much more manual.
 //!
 //! An example usage:
 //!
-//! ```ignore
+//! ```
+//! # mod outer {
 //! use serde::{Deserialize, Serialize};
 //!
 //! trait TestTrait: erased_serde::Serialize {
@@ -14,7 +21,8 @@
 //!
 //! mod test_trait {
 //!     use std::collections::HashMap;
-//!     use desfn::DesFnSync;
+//!     use std::ops::Deref;
+//!     use keyedes::DesFnSync;
 //!     use once_cell::sync::Lazy;
 //!     use serde::{Deserializer, Serializer};
 //!     use super::TestTrait;
@@ -30,14 +38,29 @@
 //!     where
 //!         S: Serializer,
 //!     {
-//!         desfn::serialize_with_key(...)
+//!         keyedes::serialize_with_key(
+//!             "Box<dyn TestTrait>",
+//!             &["id", "data"],
+//!             value.key(),
+//!             value.deref(),
+//!             serializer,
+//!         )
 //!     }
 //!
 //!     pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<Box<dyn TestTrait>, D::Error>
 //!     where
 //!         D: Deserializer<'de>,
 //!     {
-//!         desfn::deserialize_by_key(...)
+//!         keyedes::deserialize_by_key(
+//!             "Box<dyn TestTrait>",
+//!             &["id", "data"],
+//!             |key: String, deserializer| {
+//!                 MAP.get(&key)
+//!                     .ok_or_else(keyedes::unknown_key)
+//!                     .and_then(|f| f(deserializer))
+//!             },
+//!             deserializer,
+//!         )
 //!     }
 //! }
 //!
@@ -46,6 +69,7 @@
 //!     #[serde(with = "test_trait")]
 //!     test: Box<dyn TestTrait>,
 //! }
+//! # }
 //! ```
 
 use std::marker::PhantomData;
@@ -56,13 +80,12 @@ use crate::private::{ErasedSerdeSerializeWrapper, KeyValueVisitor};
 
 mod private;
 
-pub type DesFnError = erased_serde::Error;
-pub type DesFn<T> = Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, DesFnError>>;
+pub type Error = erased_serde::Error;
+pub type DesFn<T> = Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, Error>>;
 pub type DesFnSync<T> =
-    Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, DesFnError> + Send + Sync>;
+    Box<dyn Fn(&mut dyn erased_serde::Deserializer) -> Result<T, Error> + Send + Sync>;
 
-/// Will serialize a struct with the two given names and values that can then be
-/// deserialized with a similar [`deserialize_by_key()`] call.
+/// Will serialize a struct with the given field names and values.
 pub fn serialize_with_key<S, K, V>(
     type_name: &'static str,
     field_names: &'static [&'static str; 2],
@@ -83,8 +106,10 @@ where
     state.end()
 }
 
-/// Will deserialize a struct with the two given names and values that was
-/// serialized with a similar [`serialize_with_key()`] call.
+/// Will deserialize a struct with the given field names and values.
+///
+/// The function `f` will be called with deserialized key and a deserializer
+/// that can be used to get the final value.
 pub fn deserialize_by_key<'de, D, K, V, F>(
     type_name: &'static str,
     field_names: &'static [&'static str; 2],
@@ -94,7 +119,7 @@ pub fn deserialize_by_key<'de, D, K, V, F>(
 where
     D: Deserializer<'de>,
     K: Deserialize<'de>,
-    F: Fn(K, &mut dyn erased_serde::Deserializer) -> Result<V, DesFnError>,
+    F: Fn(K, &mut dyn erased_serde::Deserializer) -> Result<V, Error>,
 {
     deserializer.deserialize_struct(
         type_name,
@@ -110,10 +135,10 @@ where
 
 /// Helper function for returning a serialization error on unknown key.
 #[must_use]
-pub fn unknown_key() -> DesFnError {
+pub fn unknown_key() -> Error {
     use serde::de::Error;
 
-    DesFnError::custom("unknown deserialization key")
+    Error::custom("unknown deserialization key")
 }
 
 /// Helper macro to convert a `T: Deserialize + Trait` into a
@@ -336,13 +361,13 @@ mod tests {
         use serde::{Deserialize, Serialize};
 
         mod test_trait {
-            use crate as desfn;
+            use crate as keyedes;
 
             use std::collections::HashMap;
             use std::ops::Deref;
             use std::sync::RwLock;
 
-            use desfn::{deserialize_into_boxed_trait, DesFnSync};
+            use keyedes::{deserialize_into_boxed_trait, DesFnSync};
             use once_cell::sync::Lazy;
             use serde::{Deserializer, Serializer};
 
@@ -366,7 +391,7 @@ mod tests {
             where
                 S: Serializer,
             {
-                desfn::serialize_with_key(
+                keyedes::serialize_with_key(
                     "Box<dyn TestTrait>",
                     &["id", "data"],
                     value.key(),
@@ -381,14 +406,14 @@ mod tests {
             where
                 D: Deserializer<'de>,
             {
-                desfn::deserialize_by_key(
+                keyedes::deserialize_by_key(
                     "Box<dyn TestTrait>",
                     &["id", "data"],
                     |key: String, deserializer| {
                         MAP.read()
                             .unwrap()
                             .get(&key)
-                            .ok_or_else(desfn::unknown_key)
+                            .ok_or_else(keyedes::unknown_key)
                             .and_then(|f| f(deserializer))
                     },
                     deserializer,
