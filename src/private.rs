@@ -1,12 +1,10 @@
 use std::marker::PhantomData;
 
 // validated as of serde@1.0.126
-use serde::__private::de::{
-    Content, ContentDeserializer, TagContentOtherField, TagContentOtherFieldVisitor,
-    TagOrContentField,
-};
+use serde::__private::de::{TagContentOtherField, TagContentOtherFieldVisitor, TagOrContentField};
 use serde::de::{DeserializeSeed, Error, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde_value::{Value, ValueDeserializer};
 
 pub struct ErasedSerdeSerializeWrapper<'a, V: ?Sized>(pub &'a V);
 impl<'a, V: ?Sized> Serialize for ErasedSerdeSerializeWrapper<'a, V>
@@ -219,7 +217,7 @@ where
                 }
             }
             Some(TagOrContentField::Content) => {
-                let __content = map.next_value::<Content>()?;
+                let __content = map.next_value::<Value>()?;
                 match {
                     let mut __rk: Option<TagOrContentField> = None;
                     while let Some(__k) = map.next_key_seed(TagContentOtherFieldVisitor {
@@ -244,7 +242,7 @@ where
                     __rk
                 } {
                     Some(TagOrContentField::Tag) => {
-                        let __deserializer = ContentDeserializer::<A::Error>::new(__content);
+                        let __deserializer = ValueDeserializer::<A::Error>::new(__content);
                         let __val = map.next_value()?;
 
                         let __ret = (self.deserialization_fn)(

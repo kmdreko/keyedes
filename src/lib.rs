@@ -140,6 +140,7 @@ mod tests {
         let json1 = r#"{"id":"A","data":{"name":"chuck norris"}}"#;
         let json2 = r#"{"id":"B","data":"Pizza"}"#;
         let json3 = r#"{"id":"C","data":null}"#;
+        let json4 = r#"{"data":{"name":"chuck norris"},"id":"A"}"#;
 
         let mut map = HashMap::<String, DesFn<Box<dyn TestTrait>>>::new();
 
@@ -176,6 +177,16 @@ mod tests {
         )
         .unwrap();
         assert_eq!(result.name(), "just a c");
+
+        let mut deserializer = serde_json::Deserializer::from_str(json4);
+        let result = deserialize_by_key(
+            "Box<dyn TestTrait>",
+            &["id", "data"],
+            |key: String, deserializer| map.get(&key).unwrap()(deserializer),
+            &mut deserializer,
+        )
+        .unwrap();
+        assert_eq!(result.name(), "chuck norris");
     }
 
     #[test]

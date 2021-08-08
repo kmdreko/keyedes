@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2018"
 
 [dependencies]
-serde = { version = "1.0.126" }
 erased-serde = "0.3.16"
+serde = "1.0.126"
+serde-value = "0.7.0"
 
 [dev-dependencies]
 serde = { version = "1.0.126", features = ["derive"] }
