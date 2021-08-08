@@ -1,7 +1,5 @@
 use std::marker::PhantomData;
 
-// validated as of serde@1.0.126
-use serde::__private::de::{TagContentOtherField, TagContentOtherFieldVisitor, TagOrContentField};
 use serde::de::{DeserializeSeed, Error, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_value::{Value, ValueDeserializer};
@@ -59,6 +57,57 @@ where
         bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
         bytes byte_buf newtype_struct seq tuple
         tuple_struct map struct enum identifier ignored_any
+    }
+}
+pub enum TagOrContentField {
+    Tag,
+    Content,
+}
+
+pub enum TagContentOtherField {
+    Tag,
+    Content,
+    Other,
+}
+
+pub struct TagContentOtherFieldVisitor {
+    pub tag: &'static str,
+    pub content: &'static str,
+}
+
+impl<'de> DeserializeSeed<'de> for TagContentOtherFieldVisitor {
+    type Value = TagContentOtherField;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_str(self)
+    }
+}
+
+impl<'de> Visitor<'de> for TagContentOtherFieldVisitor {
+    type Value = TagContentOtherField;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{:?}, {:?}, or other ignored fields",
+            self.tag, self.content
+        )
+    }
+
+    fn visit_str<E>(self, field: &str) -> Result<Self::Value, E>
+    where
+        E: serde::de::Error,
+    {
+        if field == self.tag {
+            Ok(TagContentOtherField::Tag)
+        } else if field == self.content {
+            Ok(TagContentOtherField::Content)
+        } else {
+            Ok(TagContentOtherField::Other)
+        }
     }
 }
 
